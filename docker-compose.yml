@@ -1,0 +1,179 @@
+version: "2"
+
+services:
+  nginx:
+    build: ./nginx
+    image: chainify/nolikdb-nginx
+    container_name: nolikdb-nginx
+    ports:
+      - 90:80
+      - 3002:3002
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - web
+      - api
+      - parser
+      - ipfs
+      - postgres
+      - sponsor
+    networks:
+      internal:
+        ipv4_address: 10.8.0.2
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    image: chainify/nolikdb-web
+    container_name: nolikdb-web
+    volumes:
+      - ./web:/opt
+    environment:
+      - CDM_VERSION=${CDM_VERSION}
+      - ASSET_ID=${ASSET_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - CLIENT_PREFIX=${CLIENT_PREFIX}
+      - API_HOST=${API_HOST}
+      - NETWORK=${NETWORK}
+      - WS_PORT=${WS_PORT}
+      - SPONSOR_HOST=${SPONSOR_HOST}
+      - CLIENT_SEED=${CLIENT_SEED}
+      - ROOT_SEED=${ROOT_SEED}
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 10.8.0.3
+    command: bash -c "npm install -y && npm run dev"
+
+  api:
+    build: ./server
+    image: chainify/nolikdb-api
+    container_name: nolikdb-api
+    volumes:
+      - ./server:/opt
+    environment:
+      - ENV=${ENV}
+      - CDM_VERSION=${CDM_VERSION}
+      - API_VERSION=${API_VERSION}
+      - ORIGINS=${ORIGINS}
+      - ASSET_ID=${ASSET_ID}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - SPONSOR_PUBLIC_KEY=${SPONSOR_PUBLIC_KEY}
+    depends_on:
+      - ipfs
+      - postgres
+    tty: true
+    stdin_open: true
+    networks:
+      internal:
+        ipv4_address: 10.8.0.4
+    restart: unless-stopped
+    command: bash -c "python3.7 server.py"
+
+  parser:
+    build: ./parser
+    image: chainify/nolikdb-parser
+    container_name: nolikdb-parser
+    volumes:
+      - ./parser:/opt
+    depends_on:
+      - postgres
+      - ipfs
+    environment:
+      - ENV=${ENV}
+      - CDM_VERSION=${CDM_VERSION}
+      - ASSET_ID=${ASSET_ID}
+      - NODE_URL=${NODE_URL}
+      - START_HEIGHT=${START_HEIGHT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    command: bash -c "python3.7 server.py"
+    tty: true
+    stdin_open: true
+    networks:
+      internal:
+        ipv4_address: 10.8.0.5
+    labels:
+      - "autoheal=true"
+    restart: unless-stopped
+
+  postgres:
+    build: ./postgresql
+    image: chainify/nolikdb-postgres
+    container_name: nolikdb-postgres
+    volumes:
+      - ~/.data/nolikdb/postgres:/var/lib/postgresql/data
+    ports:
+      - 5433:5432
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    tty: true
+    stdin_open: true
+    networks:
+      internal:
+        ipv4_address: 10.8.0.6
+    restart: unless-stopped
+
+  ipfs:
+    image: ipfs/go-ipfs:latest
+    container_name: nolikdb-ipfs
+    volumes:
+      - ~/.data/nolikdb/ipfs/data:/data/ipfs
+      - ~/.data/nolikdb/ipfs/staging:/export
+    ports:
+      - 4011:4001
+      - 5011:5001
+      - 8090:8080
+    networks:
+      internal:
+        ipv4_address: 10.8.0.7
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: nolikdb-autoheal
+    restart: always
+    networks:
+      internal:
+        ipv4_address: 10.8.0.8
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+
+  sponsor:
+    build: ./sponsor
+    image: chainify/nolikdb-sponsor
+    container_name: nolikdb-sponsor
+    volumes:
+      - ./sponsor:/usr/src/app
+    environment:
+      - SPONSOR_SEED=${SPONSOR_SEED}
+      - CLIENT_PUBLIC_KEY=${CLIENT_PUBLIC_KEY}
+      - ASSET_ID=${ASSET_ID}
+      - NETWORK=${NETWORK}
+      - NODE_URL=${NODE_URL}
+      - CLIENT_PREFIX=${CLIENT_PREFIX}
+      - CDM_VERSION=${CDM_VERSION}
+    networks:
+      internal:
+        ipv4_address: 10.8.0.9
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    command: bash -c "npm install -y && node server.js"
+    
+
+networks:
+  internal:
+    driver: bridge
+    ipam:
+     config:
+       - subnet: 10.8.0.0/16
