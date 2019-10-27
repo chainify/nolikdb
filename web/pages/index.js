@@ -73,6 +73,12 @@ class Index extends React.Component {
         <Divider />
         <div className="containter">
           {index.list === null && 'Nothing to display'}
+          {index.list &&
+            index.list.map(el => (
+              <p>
+                {el.columnName} &mdash; {el.valueName}
+              </p>
+            ))}
         </div>
         <style jsx>{`
           .main {

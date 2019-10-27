@@ -145,17 +145,6 @@ class Parser:
                             if recipient:
                                 recipient_public_key = recipient.findall('publickey')[0].text if len(recipient.findall('publickey')) > 0 else None
                                 
-
-                            # if table:
-                            #     table_ciphertext = table.findall('ciphertext')[0].text if len(table.findall('ciphertext')) > 0 else None
-                            #     table_sha256hash = table.findall('sha256')[0].text if len(table.findall('sha256')) > 0 else None
-
-                            #     self.sql_data_tables.append((
-                            #         table_sha256hash,
-                            #         tx['id'],
-                            #         table_ciphertext
-                            #     ))
-
                             columns = operation_insert.findall('columns')[0] if len(operation_insert.findall('columns')) > 0 else None
                             if columns:
                                 cols = columns.findall('column') if len(columns.findall('column')) > 0 else None

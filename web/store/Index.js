@@ -14,8 +14,9 @@ class AppStore {
   }
 
   // @observable query = 'CREATE TABLE tweets(id, username, message)';
-  @observable query =
-    'INSERT INTO tweets(id, username, message) VALUES(1, amrbz, yadda)';
+  // @observable query =
+  //   'INSERT INTO tweets(id, username, message) VALUES(1, amrbz, yadda)';
+  @observable query = 'SELECT * FROM contacts';
   @observable list = null;
   @observable tables = [];
   @observable columns = [];
@@ -76,6 +77,47 @@ class AppStore {
           }
 
           resolve(columns);
+          // this.sendCdmStatus = 'success';
+        })
+        .catch(e => {
+          console.log('err', e);
+          reject(e);
+          // this.sendCdmStatus = 'error';
+        });
+    });
+  }
+
+  @action
+  getValues() {
+    return new Promise((resolve, reject) => {
+      const { crypto } = this.stores;
+      axios
+        .get(`${API_HOST}/api/v1/values/${keyPair(CLIENT_SEED).publicKey}`, {})
+        .then(res => {
+          const values = [];
+          for (let i = 0; i < res.data.length; i += 1) {
+            const columnName = crypto.decryptMessage(
+              res.data[i].columnCiphertext,
+              keyPair(ROOT_SEED).publicKey,
+            );
+
+            const valueName = crypto.decryptMessage(
+              res.data[i].valueCiphertext,
+              keyPair(ROOT_SEED).publicKey,
+            );
+
+            const value = {
+              columnName,
+              columnHash: res.data[i].columnHash,
+              columnCiphertext: res.data[i].columnCiphertext,
+              valueName,
+              valueHash: res.data[i].valueHash,
+              valueCiphertext: res.data[i].valueCiphertext,
+            };
+            values.push(value);
+          }
+
+          resolve(values);
           // this.sendCdmStatus = 'success';
         })
         .catch(e => {

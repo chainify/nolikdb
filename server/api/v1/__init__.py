@@ -4,6 +4,7 @@ from .heartbeat import heartbeat
 from .cdms import cdms
 from .tables import tables
 from .columns import columns
+from .values import values
 
 api_v1 = Blueprint.group(
   ipfs,
@@ -11,5 +12,6 @@ api_v1 = Blueprint.group(
   heartbeat,
   tables,
   columns,
+  values,
   url_prefix='/v1'
 )

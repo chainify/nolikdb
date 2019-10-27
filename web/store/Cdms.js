@@ -131,6 +131,10 @@ class CdmStore {
       .replace(';', '')
       .match(/^INSERT\s*INTO\s*\w*\(.*\)\s*VALUES\(.*\)$/gm);
 
+    const isSelect = index.query
+      .replace(';', '')
+      .match(/^(?:.*)FROM(?:\s*)(.*)$/gm);
+
     if (isCreate) {
       const creation = index.query.replace(/^(?:.*)TABLE(?:\s*)/gm, '');
       const table = creation.match(/^.*(?=\()/gm);
@@ -206,6 +210,19 @@ class CdmStore {
         console.log(cdm);
         this.cdmData = [cdm];
         this.sendCdm();
+      });
+    }
+
+    if (isSelect) {
+      const { index } = this.stores;
+      const regex = /^(?:.*)FROM(?:\s*)(.*)/gm;
+      const m = regex.exec(index.query.replace(';', ''));
+      const table = m[1];
+
+      // const list = [];
+      index.getValues().then(res => {
+        console.log(res);
+        index.list = res;
       });
     }
   }
