@@ -46,8 +46,9 @@ class Parser:
 
         self.sql_data_transactions = []
         self.sql_data_proofs = []
-        self.sql_data_cdms = []
-        self.sql_data_senders = []
+        self.sql_data_tables = []
+        self.sql_data_columns = []
+        self.sql_data_values = []
 
     async def emergency_stop_loop(self, title, error):
         logger.info('Emergency loop stop request')
@@ -88,86 +89,99 @@ class Parser:
                         version = root.findall('version')[0].text if len(root.findall('version')) > 0 else None
                         blockchain = root.findall('blockchain')[0].text if len(root.findall('blockchain')) > 0 else None
                         network = root.findall('network')[0].text if len(root.findall('network')) > 0 else None
-                        messages = root.findall('messages')[0] if len(root.findall('messages')) > 0 else []
+                        operations = root.findall('operations')[0] if len(root.findall('operations')) > 0 else []
 
                         if str(version) != str(os.environ['CDM_VERSION']):
                             continue
                         
-                        for message in messages:
-                            to_public_key = None
-                            cc_public_key = None
-                            to = message.findall('to')[0] if len(message.findall('to')) > 0 else None
-                            cc = message.findall('cc')[0] if len(message.findall('cc')) > 0 else None
-                            if to:
-                                to_public_key = to.findall('publickey')[0].text if len(to.findall('publickey')) > 0 else None
-                            if cc:
-                                cc_public_key = cc.findall('publickey')[0].text if len(cc.findall('publickey')) > 0 else None
-
-                            subject_ciphertext = None
-                            subject_sha256hash = None
-                            subject = message.findall('subject')[0] if len(message.findall('subject')) > 0 else None
-                            if subject:
-                                subject_ciphertext = subject.findall('ciphertext')[0].text if len(subject.findall('ciphertext')) > 0 else None
-                                subject_sha256hash = subject.findall('sha256')[0].text if len(subject.findall('sha256')) > 0 else None
-
-                            body_ciphertext = None
-                            body_sha256hash = None
-                            body = message.findall('body')[0] if len(message.findall('body')) > 0 else None
-                            if body:
-                                body_ciphertext = body.findall('ciphertext')[0].text if len(body.findall('ciphertext')) > 0 else None
-                                body_sha256hash = body.findall('sha256')[0].text if len(body.findall('sha256')) > 0 else None
-
-                            recipient_public_key = to_public_key if to_public_key else cc_public_key
-                            recipient_type = 'to' if to_public_key else 'cc'
+                        operation_create = operations.findall('create')[0] if len(operations.findall('create')) > 0 else None
+                        operation_insert = operations.findall('insert')[0] if len(operations.findall('insert')) > 0 else None
+                        if (operation_create):
+                            table_ciphertext = None
+                            table_sha256hash = None
+                            table = operation_create.findall('table')[0] if len(operation_create.findall('table')) > 0 else None
                             
-                            thread_hash = hashlib.sha256(''.join([subject_sha256hash or '', body_sha256hash or '']).encode('utf-8')).hexdigest()
-
-                            re_subject_hash = None
-                            re_message_hash = None
-                            regarding = message.findall('regarding')[0] if len(message.findall('regarding')) > 0 else None
-                            if regarding:
-                                re_subject_hash = regarding.findall('subjecthash')[0].text if len(regarding.findall('subjecthash')) > 0 else None
-                                re_message_hash = regarding.findall('messagehash')[0].text if len(regarding.findall('messagehash')) > 0 else None
+                            recipient_public_key = None
+                            recipient = operation_create.findall('recipient')[0] if len(operation_create.findall('recipient')) > 0 else None
+                            if recipient:
+                                recipient_public_key = recipient.findall('publickey')[0].text if len(recipient.findall('publickey')) > 0 else None
                                 
-                                thread_hash = hashlib.sha256(''.join([re_subject_hash or '', re_message_hash or '']).encode('utf-8')).hexdigest()
+                            if table:
+                                table_ciphertext = table.findall('ciphertext')[0].text if len(table.findall('ciphertext')) > 0 else None
+                                table_sha256hash = table.findall('sha256')[0].text if len(table.findall('sha256')) > 0 else None
 
-                            fwd_subject_hash = None
-                            fwd_message_hash = None
-                            forwarded = message.findall('forwarded')[0] if len(message.findall('forwarded')) > 0 else None
-                            if forwarded:
-                                fwd_subject_hash = forwarded.findall('subjecthash')[0].text if len(forwarded.findall('subjecthash')) > 0 else None
-                                fwd_message_hash = forwarded.findall('messagehash')[0].text if len(forwarded.findall('messagehash')) > 0 else None
-            
-                            
-                            cdm_id = 'cdm-' + str(uuid.uuid4())
-                            self.sql_data_cdms.append((
-                                cdm_id,
-                                tx['id'],
-                                recipient_public_key,
-                                subject_ciphertext,
-                                subject_sha256hash,
-                                body_ciphertext,
-                                body_sha256hash,
-                                thread_hash,
-                                blockchain,
-                                network,
-                                recipient_type,
-                                re_subject_hash,
-                                re_message_hash,
-                                fwd_subject_hash,
-                                fwd_message_hash,
-                                datetime.fromtimestamp(tx['timestamp'] / 1e3),
-                            ))
-                            
-                            from_block = message.findall('from')[0] if len(message.findall('from')) > 0 else None
-                            if from_block:
-                                senders = from_block.findall('sender') if len(from_block.findall('sender')) > 0 else None
-                                for sender in senders:
-                                    sender_public_key = sender.findall('publickey')[0].text if len(sender.findall('publickey')) > 0 else None
-                                    sender_signature = sender.findall('signature')[0].text if len(sender.findall('signature')) > 0 else None
+                                self.sql_data_tables.append((
+                                    table_sha256hash,
+                                    tx['id'],
+                                    table_ciphertext,
+                                    recipient_public_key
+                                ))
 
-                                    sender_id = str(uuid.uuid4())                                    
-                                    self.sql_data_senders.append((sender_id, cdm_id, sender_public_key, sender_signature, True))
+                            columns = operation_create.findall('columns')[0] if len(operation_create.findall('columns')) > 0 else None
+                            if columns:
+                                cols = columns.findall('column') if len(columns.findall('column')) > 0 else None
+                                for col in cols:
+                                    col_ciphertext = None
+                                    col_sha256hash = None
+
+                                    if col:
+                                        col_ciphertext = col.findall('ciphertext')[0].text if len(col.findall('ciphertext')) > 0 else None
+                                        col_sha256hash = col.findall('sha256')[0].text if len(col.findall('sha256')) > 0 else None
+
+                                        self.sql_data_columns.append((
+                                            col_sha256hash,
+                                            table_sha256hash,
+                                            col_ciphertext,
+                                            recipient_public_key
+                                        ))
+
+                        if (operation_insert):
+                            table_ciphertext = None
+                            table_sha256hash = None
+                            table = operation_insert.findall('table')[0] if len(operation_insert.findall('table')) > 0 else None
+
+                            recipient_public_key = None
+                            recipient = operation_insert.findall('recipient')[0] if len(operation_insert.findall('recipient')) > 0 else None
+                            if recipient:
+                                recipient_public_key = recipient.findall('publickey')[0].text if len(recipient.findall('publickey')) > 0 else None
+                                
+
+                            # if table:
+                            #     table_ciphertext = table.findall('ciphertext')[0].text if len(table.findall('ciphertext')) > 0 else None
+                            #     table_sha256hash = table.findall('sha256')[0].text if len(table.findall('sha256')) > 0 else None
+
+                            #     self.sql_data_tables.append((
+                            #         table_sha256hash,
+                            #         tx['id'],
+                            #         table_ciphertext
+                            #     ))
+
+                            columns = operation_insert.findall('columns')[0] if len(operation_insert.findall('columns')) > 0 else None
+                            if columns:
+                                cols = columns.findall('column') if len(columns.findall('column')) > 0 else None
+                                for col in cols:
+                                    col_ciphertext = None
+                                    col_sha256hash = None
+                                    val_ciphertext = None
+                                    val_sha256hash = None
+
+                                    if col:
+                                        col_ciphertext = col.findall('ciphertext')[0].text if len(col.findall('ciphertext')) > 0 else None
+                                        col_sha256hash = col.findall('sha256')[0].text if len(col.findall('sha256')) > 0 else None
+                                        
+                                        value = col.findall('value')[0] if len(col.findall('value')) > 0 else None
+                                        if value:
+                                            val_ciphertext = value.findall('ciphertext')[0].text if len(value.findall('ciphertext')) > 0 else None
+                                            val_sha256hash = value.findall('sha256')[0].text if len(value.findall('sha256')) > 0 else None
+                                        
+                                        self.sql_data_values.append((
+                                            val_sha256hash,
+                                            col_sha256hash,
+                                            val_ciphertext,
+                                            col_ciphertext,
+                                            recipient_public_key
+                                        ))
+                                        print(self.sql_data_values)
 
                         tx_data = (
                             tx['id'],
@@ -235,30 +249,33 @@ class Parser:
                         sql = """INSERT INTO proofs (tx_id, proof, id) VALUES %s ON CONFLICT DO NOTHING"""
                         execute_values(cur, sql, self.sql_data_proofs)
 
-                        sql = """INSERT INTO cdms (
-                            id,
+                        sql = """INSERT INTO tables (
+                            hash,
                             tx_id,
-                            recipient,
-                            subject,
-                            subject_hash,
-                            message,
-                            message_hash,
-                            thread_hash,
-                            blockchain,
-                            network,
-                            type,
-                            re_subject_hash,
-                            re_message_hash,
-                            fwd_subject_hash,
-                            fwd_message_hash,
-                            timestamp
+                            ciphertext,
+                            recipient
                         ) VALUES %s ON CONFLICT DO NOTHING"""
-                        execute_values(cur, sql, self.sql_data_cdms)        
+                        execute_values(cur, sql, self.sql_data_tables)
 
-                        if len(self.sql_data_senders) > 0:
-                            sql = """INSERT INTO senders (id, cdm_id, sender, signature, verified)
-                            VALUES %s ON CONFLICT DO NOTHING"""
-                            execute_values(cur, sql, self.sql_data_senders)                     
+                        if len(self.sql_data_columns) > 0:
+                            sql = """INSERT INTO columns (
+                                hash,
+                                table_hash,
+                                ciphertext,
+                                recipient
+                            ) VALUES %s ON CONFLICT DO NOTHING"""
+                            execute_values(cur, sql, self.sql_data_columns)
+
+                        print('self.sql_data_values', self.sql_data_values)
+                        if len(self.sql_data_values) > 0:
+                            sql = """INSERT INTO values (
+                                val_hash,
+                                col_hash,
+                                val_ciphertext,
+                                col_ciphertext,
+                                recipient
+                            ) VALUES %s ON CONFLICT DO NOTHING"""
+                            execute_values(cur, sql, self.sql_data_values)
 
                     conn.commit()
                     logger.info('Saved {0} transactions'.format(self.transactions_inserted))
@@ -277,8 +294,9 @@ class Parser:
             self.transactions_inserted = 0
             self.sql_data_transactions = []
             self.sql_data_proofs = []
-            self.sql_data_cdms = []
-            self.sql_data_senders = []
+            self.sql_data_tables = []
+            self.sql_data_columns = []
+            self.sql_data_values = []
 
     async def start(self):
         conn = None

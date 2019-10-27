@@ -57,7 +57,6 @@ class CdmStore {
   @action
   sendQuery() {
     this.newQuery();
-    this.sendCdm();
   }
 
   @action
@@ -89,9 +88,9 @@ class CdmStore {
     }
 
     this.sendCdmStatus = 'pending';
-    // const cdm = crypto.compose(this.cdmData);
-    // console.log(cdm)
-    return;
+    const cdm = crypto.compose(this.cdmData);
+    // console.log(cdm);
+    // return;
 
     const ipfsFormConfig = {};
     const ipfsFormData = new FormData();
@@ -110,13 +109,7 @@ class CdmStore {
         axios
           .post(`${SPONSOR_HOST}/sponsor`, sponsorFormData, formConfig)
           .then(() => {
-            notifiers.success('Message has been sent. It will appear shortly.');
-            if (chat.composeMode) {
-              chat.toggleCompose();
-            } else {
-              chat.clearChat();
-            }
-            chat.clearNewMembers();
+            notifiers.success('Query has been sent.');
             this.sendCdmStatus = 'success';
           })
           .catch(e => {
@@ -129,30 +122,92 @@ class CdmStore {
   @action
   newQuery() {
     const { app, index, crypto } = this.stores;
-    const creation = index.query.replace(/^(?:.*)TABLE(?:\s*)/gm, '');
-    const table = creation.match(/^.*(?=\()/gm);
-    const columns = creation
-      .replace(table, '')
-      .replace(/[()]/gm, '')
-      .split(',')
-      .map(el => el.trim());
 
-    const origins = [ROOT_SEED];
-    const recipients = [];
-    for (let i = 0; i < columns.length; i += 1) {
-      const seed = randomSeed();
-      const { publicKey } = keyPair(seed);
-      recipients.push(publicKey);
+    let cdm = null;
+    const isCreate = index.query
+      .replace(';', '')
+      .match(/^CREATE\s*TABLE\s*\w*\(.*\)$/gm);
+    const isInsert = index.query
+      .replace(';', '')
+      .match(/^INSERT\s*INTO\s*\w*\(.*\)\s*VALUES\(.*\)$/gm);
+
+    if (isCreate) {
+      const creation = index.query.replace(/^(?:.*)TABLE(?:\s*)/gm, '');
+      const table = creation.match(/^.*(?=\()/gm);
+      const columns = creation
+        .replace(table, '')
+        .replace(/[()]/gm, '')
+        .split(',')
+        .map(el => ({
+          name: el.trim(),
+          seed: randomSeed(),
+        }));
+
+      cdm = {
+        create: {
+          table: table[0],
+          columns,
+        },
+        senders: [ROOT_SEED],
+      };
+
+      this.cdmData = [cdm];
+      this.sendCdm();
     }
 
-    const cdm = {
-      create: null,
-      insert: null,
-      origins,
-      recipients,
-    };
-    this.cdmData = [cdm];
-    console.log(cdm);
+    if (isInsert) {
+      const regex = /^(?:.*)INTO(?:\s*)(\w*)(\(.*\))\s*VALUES(\(.*\))$/gm;
+      const m = regex.exec(index.query.replace(';', ''));
+      const table = m[1];
+
+      index.getColumns().then(res => {
+        const columns = m[2]
+          .replace(/[()]/gm, '')
+          .split(',')
+          .map(el => el.trim());
+
+        // console.log('columns', columns);
+
+        const values = m[3]
+          .replace(/[()]/gm, '')
+          .split(',')
+          .map(el => el.trim());
+
+        const data = [];
+        for (let i = 0; i < res.length; i += 1) {
+          if (
+            columns.indexOf(res[i].columnName) > -1 &&
+            table === res[i].tableName
+          ) {
+            data.push({
+              column: {
+                name: res[i].columnName,
+                hash: res[i].columnHash,
+                ciphertext: res[i].columnCiphertext,
+              },
+              table: {
+                name: res[i].tableName,
+                hash: res[i].tableHash,
+                ciphertext: res[i].tableCiphertext,
+              },
+              value: values[i],
+            });
+          }
+        }
+
+        cdm = {
+          table,
+          insert: {
+            table,
+            data,
+          },
+          senders: [ROOT_SEED],
+        };
+        console.log(cdm);
+        this.cdmData = [cdm];
+        this.sendCdm();
+      });
+    }
   }
 
   @action

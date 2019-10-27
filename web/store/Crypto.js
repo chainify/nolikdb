@@ -10,7 +10,13 @@ import {
 
 import getConfig from 'next/config';
 const { publicRuntimeConfig } = getConfig();
-const { CDM_VERSION, CLIENT_PREFIX, NETWORK } = publicRuntimeConfig;
+const {
+  CDM_VERSION,
+  CLIENT_PREFIX,
+  NETWORK,
+  ROOT_SEED,
+  CLIENT_SEED,
+} = publicRuntimeConfig;
 
 class CryptoStore {
   stores = null;
@@ -21,7 +27,7 @@ class CryptoStore {
   }
 
   @action
-  wrapCdm(messages) {
+  wrapCdm(operations) {
     let cdm = '<?xml version="1.0"?>';
     cdm += '\r\n<cdm>';
     cdm += `\r\n<version>${CDM_VERSION}</version>`;
@@ -30,9 +36,9 @@ class CryptoStore {
       0,
       1,
     ).toUpperCase()}${NETWORK.substring(1).toLowerCase()}</network>`;
-    cdm += '\r\n<messages>';
-    cdm += messages;
-    cdm += '\r\n</messages>';
+    cdm += '\r\n<operations>';
+    cdm += operations;
+    cdm += '\r\n</operations>';
     cdm += '\r\n</cdm>';
     return cdm;
   }
@@ -45,14 +51,15 @@ class CryptoStore {
   }
 
   @action
-  encrypt(recipient, text) {
-    const { app } = this.stores;
+  encrypt(fromSeed, toSeed, text) {
     let msg = '';
-    const keys = keyPair(app.seed);
     const messageHash = sha256(text);
-
     const cipherBytes = messageEncrypt(
-      sharedKey(keys.privateKey, recipient, CLIENT_PREFIX),
+      sharedKey(
+        keyPair(fromSeed).privateKey,
+        keyPair(toSeed).publicKey,
+        CLIENT_PREFIX,
+      ),
       text,
     );
     const cipherText = base58Encode(cipherBytes);
@@ -63,110 +70,111 @@ class CryptoStore {
     return msg;
   }
 
+  // @action
+  // block(subject, message, recipient, type) {
+  //   let msg = '';
+  //   if (subject) {
+  //     const sbj = this.encrypt(recipient, subject);
+  //     msg += `\r\n<subject>`;
+  //     msg += sbj;
+  //     msg += `\r\n</subject>`;
+  //   }
+
+  //   const body = this.encrypt(recipient, message);
+  //   msg += `\r\n<${type}>`;
+  //   msg += `\r\n<publickey>${recipient}</publickey>`;
+  //   msg += `\r\n</${type}>`;
+  //   msg += `\r\n<body>`;
+  //   msg += body;
+  //   msg += `\r\n</body>`;
+
+  //   return msg;
+  // }
+
   @action
-  block(subject, message, recipient, type) {
-    let msg = '';
-    if (subject) {
-      const sbj = this.encrypt(recipient, subject);
-      msg += `\r\n<subject>`;
-      msg += sbj;
-      msg += `\r\n</subject>`;
+  operation(data) {
+    const { origins } = data;
+    let op = '';
+    if (data.create) {
+      const table = this.encrypt(ROOT_SEED, CLIENT_SEED, data.create.table);
+      op += '\r\n<create>';
+      op += '\r\n<table>';
+      op += table;
+      op += '\r\n</table>';
+      op += '\r\n<columns>';
+
+      for (let i = 0; i < data.create.columns.length; i += 1) {
+        const col = this.encrypt(
+          ROOT_SEED,
+          // data.create.columns[i].seed,
+          CLIENT_SEED,
+          data.create.columns[i].name,
+        );
+        op += '\r\n<column>';
+        op += col;
+        op += '\r\n</column>';
+      }
+
+      op += '\r\n</columns>';
+      op += '\r\n<origin>';
+      op += `\r\n<publickey>${keyPair(ROOT_SEED).publicKey}</publickey>`;
+      op += `\r\n<signature>signature</signature>`;
+      op += '\r\n</origin>';
+      op += '\r\n<recipient>';
+      op += `\r\n<publickey>${keyPair(CLIENT_SEED).publicKey}</publickey>`;
+      op += '\r\n</recipient>';
+      op += '\r\n</create>';
     }
 
-    const body = this.encrypt(recipient, message);
-    msg += `\r\n<${type}>`;
-    msg += `\r\n<publickey>${recipient}</publickey>`;
-    msg += `\r\n</${type}>`;
-    msg += `\r\n<body>`;
-    msg += body;
-    msg += `\r\n</body>`;
+    if (data.insert) {
+      op += '\r\n<insert>';
+      op += '\r\n<table>';
+      op += `\r\n<ciphertext>${data.insert.data[0].table.ciphertext}</ciphertext>`;
+      op += `\r\n<sha256>${data.insert.data[0].table.hash}</sha256>`;
+      op += '\r\n</table>';
+      op += '\r\n<columns>';
 
-    return msg;
-  }
-
-  @action
-  message(data) {
-    let msg = '';
-    const subject = data.rawSubject
-      ? data.rawSubject
-      : this.randomize(data.subject);
-    const message = data.rawMessage
-      ? data.rawMessage
-      : this.randomize(data.message);
-    const reSubjectHash = data.regarding ? data.regarding.reSubjectHash : null;
-    const reMessageHash = data.regarding ? data.regarding.reMessageHash : null;
-
-    const fwdSubjectHash = data.forwarded
-      ? data.forwarded.fwdSubjectHash
-      : null;
-    const fwdMessageHash = data.forwarded
-      ? data.forwarded.fwdMessageHash
-      : null;
-
-    const senderPublicKey = data.from ? data.from.senderPublicKey : null;
-    const senderSignature = data.from ? data.from.senderSignature : null;
-
-    for (let i = 0; i < data.recipients.length; i += 1) {
-      const block = this.block(
-        subject,
-        message,
-        data.recipients[i].recipient,
-        data.recipients[i].type,
-      );
-
-      msg += '\r\n<message>';
-      msg += block;
-      if (data.regarding && (reSubjectHash || reMessageHash)) {
-        msg += `\r\n<regarding>`;
-        if (reSubjectHash) {
-          msg += `\r\n<subjecthash>${reSubjectHash}</subjecthash>`;
-        }
-        if (reMessageHash) {
-          msg += `\r\n<messagehash>${reMessageHash}</messagehash>`;
-        }
-        msg += `\r\n</regarding>>`;
+      for (let i = 0; i < data.insert.data.length; i += 1) {
+        const val = this.encrypt(
+          ROOT_SEED,
+          CLIENT_SEED,
+          data.insert.data[i].value,
+        );
+        op += '\r\n<column>';
+        op += `\r\n<ciphertext>${data.insert.data[i].column.ciphertext}</ciphertext>`;
+        op += `\r\n<sha256>${data.insert.data[i].column.hash}</sha256>`;
+        op += '\r\n<value>';
+        op += val;
+        op += '\r\n</value>';
+        op += '\r\n</column>';
       }
-      if (data.forwarded && (fwdSubjectHash || fwdMessageHash)) {
-        msg += `\r\n<forwarded>`;
-        if (fwdSubjectHash) {
-          msg += `\r\n<subjecthash>${fwdSubjectHash}</subjecthash>`;
-        }
-        if (fwdMessageHash) {
-          msg += `\r\n<messagehash>${fwdMessageHash}</messagehash>`;
-        }
-        msg += `\r\n</forwarded>`;
-      }
-      if (data.from && senderPublicKey && data.recipients[i].signature) {
-        msg += `\r\n<from>`;
-        msg += `\r\n<sender>`;
-        if (senderPublicKey) {
-          msg += `\r\n<publickey>${senderPublicKey}</publickey>`;
-        }
-        if (data.recipients[i].signature) {
-          msg += `\r\n<signature>${data.recipients[i].signature}</signature>`;
-        }
-        msg += `\r\n</sender>`;
-        msg += `\r\n</from>`;
-      }
-      msg += '\r\n</message>';
+
+      op += '\r\n</columns>';
+      op += '\r\n<origin>';
+      op += `\r\n<publickey>${keyPair(ROOT_SEED).publicKey}</publickey>`;
+      op += `\r\n<signature>signature</signature>`;
+      op += '\r\n</origin>';
+      op += '\r\n<recipient>';
+      op += `\r\n<publickey>${keyPair(CLIENT_SEED).publicKey}</publickey>`;
+      op += '\r\n</recipient>';
+      op += '\r\n</insert>';
     }
-    return msg;
+    return op;
   }
 
   @action
   compose(data) {
-    let msg = '';
+    let operations = '';
     for (let i = 0; i < data.length; i += 1) {
-      const message = this.message(data[i]);
-      msg += message;
+      const operation = this.operation(data[i]);
+      operations += operation;
     }
-    return this.wrapCdm(msg);
+    return this.wrapCdm(operations);
   }
 
   @action
   decryptMessage(cipherText, publicKey) {
-    const { app } = this.stores;
-    const keys = keyPair(app.seed);
+    const keys = keyPair(CLIENT_SEED);
     let decryptedMessage;
     try {
       decryptedMessage = messageDecrypt(
